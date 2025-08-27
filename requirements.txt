@@ -15,7 +15,6 @@ azure-storage-blob==12.19.0
 
 # AI/ML and language processing
 langchain-openai==0.1.13
-openai==1.30.1
 
 # Standard library imports (no installation needed)
 # - os
