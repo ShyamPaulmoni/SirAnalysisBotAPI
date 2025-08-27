@@ -6,7 +6,7 @@ import uvicorn
 import uuid
 from datetime import datetime
 from utils import (
-    get_schema_info, detect_english_names, convert_english_to_tamil_names, 
+    detect_english_names, convert_english_to_tamil_names, 
     get_conversation_context, generate_sql_query, execute_sql_query,
     explain_results, generate_follow_up_suggestions
 )

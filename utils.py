@@ -23,36 +23,57 @@ def get_llm_client():
     """Initialize and return the Azure OpenAI client (cached)"""
     global _llm_client
     if _llm_client is None:
-        _llm_client = AzureChatOpenAI(
-        deployment_name=os.getenv("DEPLOYMENT_NAME"),
-        azure_endpoint=os.getenv("API_BASE"),
-        openai_api_key=os.getenv("API_KEY"),
-        openai_api_type=os.getenv("API_TYPE"),
-        openai_api_version=os.getenv("API_VERSION"),
-        temperature=0.1,
-    )
+        try:
+            api_key = os.getenv("API_KEY")
+            api_base = os.getenv("API_BASE")
+            deployment_name = os.getenv("DEPLOYMENT_NAME")
+            
+            if not api_key or "dummy" in api_key.lower():
+                raise ValueError("Azure OpenAI API key not properly configured")
+            if not api_base or "dummy" in api_base.lower():
+                raise ValueError("Azure OpenAI API base URL not properly configured")
+            if not deployment_name:
+                raise ValueError("Azure OpenAI deployment name not configured")
+                
+            _llm_client = AzureChatOpenAI(
+                deployment_name=deployment_name,
+                azure_endpoint=api_base,
+                openai_api_key=api_key,
+                openai_api_type=os.getenv("API_TYPE", "azure"),
+                openai_api_version=os.getenv("API_VERSION", "2024-02-15-preview"),
+                temperature=0.1,
+            )
+        except Exception as e:
+            print(f"Error initializing Azure OpenAI client: {str(e)}")
+            raise
     return _llm_client
 
 
 def generate_sas_url():
     """Generate a fresh SAS URL for the blob"""
-    blob_service_client = BlobServiceClient.from_connection_string(
-        os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-    )
-    container_client = blob_service_client.get_container_client("data")
-    blob_client = container_client.get_blob_client("voter_duckdb/updated_merged.parquet")
+    try:
+        connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        if not connection_string or "dummy" in connection_string.lower():
+            raise ValueError("Azure Storage connection string not properly configured")
+            
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        container_client = blob_service_client.get_container_client("data")
+        blob_client = container_client.get_blob_client("voter_duckdb/updated_merged.parquet")
 
-    sas_token = generate_blob_sas(
-        account_name=blob_service_client.account_name,
-        container_name=container_client.container_name,
-        blob_name=blob_client.blob_name,
-        account_key=blob_service_client.credential.account_key,
-        permission=BlobSasPermissions(read=True),
-        expiry=datetime.utcnow() + timedelta(hours=1),  # 1-hour token
-    )
+        sas_token = generate_blob_sas(
+            account_name=blob_service_client.account_name,
+            container_name=container_client.container_name,
+            blob_name=blob_client.blob_name,
+            account_key=blob_service_client.credential.account_key,
+            permission=BlobSasPermissions(read=True),
+            expiry=datetime.now() + timedelta(hours=1),  # 1-hour token
+        )
 
-    sas_url = f"{blob_client.url}?{sas_token}"
-    return sas_url
+        sas_url = f"{blob_client.url}?{sas_token}"
+        return sas_url
+    except Exception as e:
+        print(f"Error generating SAS URL: {str(e)}")
+        raise
 
 @lru_cache(maxsize=1)
 def init_database():
@@ -60,6 +81,8 @@ def init_database():
     global _db_connection
     if _db_connection is None:
         _db_connection = duckdb.connect()
+        # Set home directory for Docker container compatibility
+        _db_connection.execute("SET home_directory='/tmp';")
         _db_connection.execute("INSTALL httpfs;")
         _db_connection.execute("LOAD httpfs;")
         sas_url = generate_sas_url()
