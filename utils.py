@@ -113,7 +113,7 @@ def extract_person_names_with_ai(text: str) -> List[str]:
     try:
         client = get_llm_client()
         prompt = f"""
-        Analyze this text and extract ONLY person names (not places, organizations, or common words).
+        Analyze this text and extract ONLY person names (not places, organizations, constituency names, or common words).
         
         Text: "{text}"
         
@@ -122,23 +122,32 @@ def extract_person_names_with_ai(text: str) -> List[str]:
         GUIDELINES:
         1. Look for proper nouns that could be person names
         2. Focus on Indian/South Indian name patterns
-        3. Ignore place names, organizations, common English words
-        4. Consider both first names and surnames
-        5. Include names even if they appear in different contexts
+        3. IGNORE place names, organizations, common English words
+        4. IGNORE constituency names like Chennai, Madurai, Coimbatore, etc.
+        5. IGNORE political terms like "constituency", "assembly", "parliament"
+        6. Consider both first names and surnames
+        7. Include names even if they appear in different contexts
         
-        COMMON INDIAN NAME PATTERNS:
+        COMMON INDIAN PERSON NAME PATTERNS:
         - Names ending in: -an, -ar, -am, -raj, -kumar, -devi, -priya, -krishna
         - Names starting with: Sri, Sel, Muru, Kart, Div, Ani, Sur, Rav, Prab
+        
+        EXCLUDE (NOT PERSON NAMES):
+        - Place names: Chennai, Madurai, Coimbatore, Salem, etc.
+        - Political terms: constituency, assembly, parliament, seat, etc.
         
         OUTPUT FORMAT:
         Return ONLY the person names found, one per line.
         If no person names found, return "NO_NAMES_FOUND"
         
         Examples:
-        Input: "Find voters named Kumar and Priya in Chennai"
+        Input: "Find voters named Kumar and Priya in Chennai constituency"
         Output: 
         Kumar
         Priya
+        
+        Input: "Show me data for Chennai and Madurai constituencies"
+        Output: NO_NAMES_FOUND
         
         Input: "Show me demographics data"
         Output: NO_NAMES_FOUND
@@ -165,25 +174,117 @@ def extract_person_names_with_ai(text: str) -> List[str]:
         print(f"Name extraction failed: {str(e)}")
         return []
 
+def detect_english_constituency_names(text: str) -> bool:
+    """Detect if text contains English constituency names"""
+    # Common English constituency name patterns in Tamil Nadu
+    common_constituency_patterns = [
+        'constituency', 'assembly', 'lok sabha', 'parliament', 'seat',
+        'chennai', 'madurai', 'coimbatore', 'salem', 'trichy', 'vellore',
+        'tirunelveli', 'erode', 'tirupur', 'thanjavur', 'kanchipuram',
+        'villupuram', 'cuddalore', 'nagapattinam', 'karur', 'namakkal',
+        'dharmapuri', 'krishnagiri', 'tiruvallur', 'kancheepuram'
+    ]
+    
+    text_lower = text.lower()
+    
+    # Check for known constituency names or patterns
+    for pattern in common_constituency_patterns:
+        if pattern in text_lower:
+            return True
+    
+    return False
+
+def convert_english_to_tamil_constituency_names(english_text: str) -> Dict[str, Any]:
+    """Convert English constituency names to Tamil using OpenAI"""
+    try:
+        client = get_llm_client()
+        
+        prompt = f"""
+        Convert English constituency/place names in this text to their Tamil script equivalents:
+        
+        Text: "{english_text}"
+        
+        TASK: Identify and convert constituency names, assembly seat names, or place names to Tamil.
+        
+        COMMON TAMIL NADU CONSTITUENCY CONVERSIONS:
+        Chennai → சென்னை
+        Madurai → மதுரை
+        Coimbatore → கோயம்பத்தூர்
+        Salem → சேலம்
+        Trichy → திருச்சி
+        Vellore → வேலூர்
+        Tirunelveli → திருநெல்வேலி
+        Erode → ஈரோடு
+        Tirupur → திருப்பூர்
+        Thanjavur → தஞ்சாவூர்
+        Kanchipuram → காஞ்சிபுரம்
+        Villupuram → விழுப்புரம்
+        Cuddalore → கடலூர்
+        Nagapattinam → நாகப்பட்டினம்
+        Karur → கரூர்
+        Namakkal → நாமக்கல்
+        Dharmapuri → தருமபுரி
+        Krishnagiri → கிருஷ்ணகிரி
+        Tiruvallur → திருவள்ளூர்
+        Kancheepuram → காஞ்சிபுரம்
+        
+        GUIDELINES:
+        1. Focus on place names and constituency names
+        2. Convert to proper Tamil script
+        3. If multiple variants exist, use the most common one
+        4. Ignore common English words like "constituency", "assembly"
+        
+        OUTPUT FORMAT:
+        Return the Tamil equivalents separated by commas.
+        If no constituency names found, return "NO_CONSTITUENCIES_FOUND"
+        
+        Example:
+        Input: "Show me data for Chennai and Madurai constituencies"
+        Output: சென்னை, மதுரை
+        """
+        
+        response = client.invoke(prompt)
+        converted_text = response.content.strip()
+        
+        if converted_text == "NO_CONSTITUENCIES_FOUND":
+            return {"tamil_constituencies": [], "constituency_mapping": {}}
+        
+        # Parse the response to extract Tamil constituency names
+        tamil_constituencies = [name.strip() for name in converted_text.split(',') if name.strip()]
+        
+        return {
+            "tamil_constituencies": tamil_constituencies,
+            "constituency_mapping": {},  # We could enhance this later
+            "original_text": english_text
+        }
+        
+    except Exception as e:
+        print(f"Constituency name conversion failed: {str(e)}")
+        return {"tamil_constituencies": [], "constituency_mapping": {}, "original_text": english_text}
+
 def detect_english_names(text: str) -> bool:
-    """Enhanced detection using AI-based Named Entity Recognition"""
+    """Enhanced detection using AI-based Named Entity Recognition for person names only"""
+    # Skip if constituency names are detected
+    if detect_english_constituency_names(text):
+        return False
+    
     # First, try AI-based name extraction
     extracted_names = extract_person_names_with_ai(text)
     
     if extracted_names:
         return True
     
-    # Fallback to pattern-based detection for common cases
+    # Fallback to pattern-based detection for common person names
     common_tamil_names = [
         'kumar', 'raj', 'priya', 'ravi', 'devi', 'krishna', 'lakshmi',
         'murugan', 'selvam', 'mani', 'karthik', 'divya', 'anita', 'suresh',
-        'selvam', 'muthu', 'arjun', 'kavitha', 'deepa', 'ganesh', 'shiva',
+        'muthu', 'arjun', 'kavitha', 'deepa', 'ganesh', 'shiva',
         'saravanan', 'vijay', 'ajith', 'madhavi', 'radha', 'sita', 'gita'
     ]
     
     text_lower = text.lower()
     
-    # Check for known Tamil names in English
+    # Check for known Tamil person names in English
     for name in common_tamil_names:
         if name in text_lower:
             return True

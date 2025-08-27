@@ -6,7 +6,8 @@ import uvicorn
 import uuid
 from datetime import datetime
 from utils import (
-    detect_english_names, convert_english_to_tamil_names, 
+    get_schema_info, detect_english_names, convert_english_to_tamil_names, 
+    detect_english_constituency_names, convert_english_to_tamil_constituency_names,
     get_conversation_context, generate_sql_query, execute_sql_query,
     explain_results, generate_follow_up_suggestions
 )
@@ -124,11 +125,12 @@ async def chat(request: ChatRequest):
 async def _process_chat_message(message: str, conversation_history: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Internal function to process chat messages and handle all operations"""
     
-    # Check for English name conversion
+    # Check for English name conversion (but skip if constituency names are detected)
     name_conversion_info = None
     tamil_names = []
     
-    if detect_english_names(message):
+    # Don't convert names if constituency names are detected
+    if detect_english_names(message) and not detect_english_constituency_names(message):
         conversion_result = convert_english_to_tamil_names(message)
         if conversion_result["tamil_names"]:
             tamil_names = conversion_result["tamil_names"]
