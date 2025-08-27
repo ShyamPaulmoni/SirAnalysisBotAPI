@@ -1,21 +1,21 @@
 # FastAPI and web server dependencies
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
+fastapi
+uvicorn[standard]
+pydantic
 
 # Environment variable management
-python-dotenv==1.0.0
+python-dotenv
 
 # Database and data processing
-duckdb==0.9.2
-pandas==2.1.4
+duckdb
+pandas
 
 # Azure services
-azure-storage-blob==12.19.0
+azure-storage-blob
 
 # AI/ML and language processing
-langchain-openai==0.1.13
-openai==1.30.1
+langchain-openai
+openai
 
 # Standard library imports (no installation needed)
 # - os
