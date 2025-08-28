@@ -21,7 +21,6 @@ _schema_info = None
 _sas_url = None
 _sas_expiry = None
 _sas_lock = threading.Lock()
-_db_connection = None
 
 @lru_cache(maxsize=1)
 def get_llm_client():
@@ -98,11 +97,11 @@ def init_database():
         _db_connection = duckdb.connect()
         _db_connection.execute("SET home_directory='/tmp';")
         _db_connection.execute("INSTALL httpfs;")
-        _db_connection.execute("LOAD httpfs;")
-    
-    # Always refresh the view with current SAS URL
-    sas_url = generate_sas_url_with_cache()
-    _db_connection.execute(f"CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('{sas_url}')")
+        _db_connection.execute("LOAD httpfs;")    
+        # Always refresh the view with current SAS URL
+        sas_url = generate_sas_url_with_cache()
+        _db_connection.execute(f"CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('{sas_url}')")
+        
     return _db_connection
 
 @lru_cache(maxsize=1)
