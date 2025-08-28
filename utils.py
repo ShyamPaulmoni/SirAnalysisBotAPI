@@ -1,3 +1,4 @@
+import threading
 import duckdb
 import pandas as pd
 import re
@@ -17,6 +18,10 @@ load_dotenv()
 _llm_client = None
 _db_connection = None
 _schema_info = None
+_sas_url = None
+_sas_expiry = None
+_sas_lock = threading.Lock()
+_db_connection = None
 
 @lru_cache(maxsize=1)
 def get_llm_client():
@@ -49,46 +54,56 @@ def get_llm_client():
     return _llm_client
 
 
-def generate_sas_url():
-    """Generate a fresh SAS URL for the blob"""
-    try:
-        connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-        if not connection_string or "dummy" in connection_string.lower():
-            raise ValueError("Azure Storage connection string not properly configured")
-            
-        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-        container_client = blob_service_client.get_container_client("data")
-        blob_client = container_client.get_blob_client("voter_duckdb/updated_merged.parquet")
+def generate_sas_url_with_cache():
+    """Generate SAS URL with intelligent caching and refresh"""
+    global _sas_url, _sas_expiry
+    
+    with _sas_lock:
+        # Check if we need to refresh (refresh 10 minutes before expiry)
+        if _sas_url is None or _sas_expiry is None or datetime.now() > (_sas_expiry - timedelta(minutes=10)):
+            try:
+                connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+                if not connection_string or "dummy" in connection_string.lower():
+                    raise ValueError("Azure Storage connection string not properly configured")
+                    
+                blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+                container_client = blob_service_client.get_container_client("data")
+                blob_client = container_client.get_blob_client("voter_duckdb/updated_merged.parquet")
 
-        sas_token = generate_blob_sas(
-            account_name=blob_service_client.account_name,
-            container_name=container_client.container_name,
-            blob_name=blob_client.blob_name,
-            account_key=blob_service_client.credential.account_key,
-            permission=BlobSasPermissions(read=True),
-            expiry=datetime.now() + timedelta(hours=1),  # 1-hour token
-        )
+                # Generate 2-hour token (refresh every 1h50m)
+                expiry_time = datetime.now() + timedelta(hours=2)
+                sas_token = generate_blob_sas(
+                    account_name=blob_service_client.account_name,
+                    container_name=container_client.container_name,
+                    blob_name=blob_client.blob_name,
+                    account_key=blob_service_client.credential.account_key,
+                    permission=BlobSasPermissions(read=True),
+                    expiry=expiry_time,
+                )
 
-        sas_url = f"{blob_client.url}?{sas_token}"
-        return sas_url
-    except Exception as e:
-        print(f"Error generating SAS URL: {str(e)}")
-        raise
+                _sas_url = f"{blob_client.url}?{sas_token}"
+                _sas_expiry = expiry_time
+                print(f"SAS URL refreshed. Expires at: {_sas_expiry}")
+                
+            except Exception as e:
+                print(f"Error generating SAS URL: {str(e)}")
+                raise
+                
+        return _sas_url
 
-@lru_cache(maxsize=1)
 def init_database():
-    """Initialize DuckDB connection and create view (cached)"""
+    """Initialize DuckDB connection and refresh view with current SAS URL"""
     global _db_connection
     if _db_connection is None:
         _db_connection = duckdb.connect()
-        # Set home directory for Docker container compatibility
         _db_connection.execute("SET home_directory='/tmp';")
         _db_connection.execute("INSTALL httpfs;")
         _db_connection.execute("LOAD httpfs;")
-        sas_url = generate_sas_url()
-        _db_connection.execute(f"CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('{sas_url}')")
-        return _db_connection
-
+    
+    # Always refresh the view with current SAS URL
+    sas_url = generate_sas_url_with_cache()
+    _db_connection.execute(f"CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('{sas_url}')")
+    return _db_connection
 
 @lru_cache(maxsize=1)
 def get_schema_info():
@@ -174,100 +189,10 @@ def extract_person_names_with_ai(text: str) -> List[str]:
         print(f"Name extraction failed: {str(e)}")
         return []
 
-def detect_english_constituency_names(text: str) -> bool:
-    """Detect if text contains English constituency names"""
-    # Common English constituency name patterns in Tamil Nadu
-    common_constituency_patterns = [
-        'constituency', 'assembly', 'lok sabha', 'parliament', 'seat',
-        'chennai', 'madurai', 'coimbatore', 'salem', 'trichy', 'vellore',
-        'tirunelveli', 'erode', 'tirupur', 'thanjavur', 'kanchipuram',
-        'villupuram', 'cuddalore', 'nagapattinam', 'karur', 'namakkal',
-        'dharmapuri', 'krishnagiri', 'tiruvallur', 'kancheepuram'
-    ]
-    
-    text_lower = text.lower()
-    
-    # Check for known constituency names or patterns
-    for pattern in common_constituency_patterns:
-        if pattern in text_lower:
-            return True
-    
-    return False
-
-def convert_english_to_tamil_constituency_names(english_text: str) -> Dict[str, Any]:
-    """Convert English constituency names to Tamil using OpenAI"""
-    try:
-        client = get_llm_client()
-        
-        prompt = f"""
-        Convert English constituency/place names in this text to their Tamil script equivalents:
-        
-        Text: "{english_text}"
-        
-        TASK: Identify and convert constituency names, assembly seat names, or place names to Tamil.
-        
-        COMMON TAMIL NADU CONSTITUENCY CONVERSIONS:
-        Chennai → சென்னை
-        Madurai → மதுரை
-        Coimbatore → கோயம்பத்தூர்
-        Salem → சேலம்
-        Trichy → திருச்சி
-        Vellore → வேலூர்
-        Tirunelveli → திருநெல்வேலி
-        Erode → ஈரோடு
-        Tirupur → திருப்பூர்
-        Thanjavur → தஞ்சாவூர்
-        Kanchipuram → காஞ்சிபுரம்
-        Villupuram → விழுப்புரம்
-        Cuddalore → கடலூர்
-        Nagapattinam → நாகப்பட்டினம்
-        Karur → கரூர்
-        Namakkal → நாமக்கல்
-        Dharmapuri → தருமபுரி
-        Krishnagiri → கிருஷ்ணகிரி
-        Tiruvallur → திருவள்ளூர்
-        Kancheepuram → காஞ்சிபுரம்
-        
-        GUIDELINES:
-        1. Focus on place names and constituency names
-        2. Convert to proper Tamil script
-        3. If multiple variants exist, use the most common one
-        4. Ignore common English words like "constituency", "assembly"
-        
-        OUTPUT FORMAT:
-        Return the Tamil equivalents separated by commas.
-        If no constituency names found, return "NO_CONSTITUENCIES_FOUND"
-        
-        Example:
-        Input: "Show me data for Chennai and Madurai constituencies"
-        Output: சென்னை, மதுரை
-        """
-        
-        response = client.invoke(prompt)
-        converted_text = response.content.strip()
-        
-        if converted_text == "NO_CONSTITUENCIES_FOUND":
-            return {"tamil_constituencies": [], "constituency_mapping": {}}
-        
-        # Parse the response to extract Tamil constituency names
-        tamil_constituencies = [name.strip() for name in converted_text.split(',') if name.strip()]
-        
-        return {
-            "tamil_constituencies": tamil_constituencies,
-            "constituency_mapping": {},  # We could enhance this later
-            "original_text": english_text
-        }
-        
-    except Exception as e:
-        print(f"Constituency name conversion failed: {str(e)}")
-        return {"tamil_constituencies": [], "constituency_mapping": {}, "original_text": english_text}
-
 def detect_english_names(text: str) -> bool:
     """Enhanced detection using AI-based Named Entity Recognition for person names only"""
     # Skip if constituency names are detected
-    if detect_english_constituency_names(text):
-        return False
-    
+     
     # First, try AI-based name extraction
     extracted_names = extract_person_names_with_ai(text)
     

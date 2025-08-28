@@ -130,7 +130,7 @@ async def _process_chat_message(message: str, conversation_history: List[Dict[st
     tamil_names = []
     
     # Don't convert names if constituency names are detected
-    if detect_english_names(message) and not detect_english_constituency_names(message):
+    if detect_english_names(message):
         conversion_result = convert_english_to_tamil_names(message)
         if conversion_result["tamil_names"]:
             tamil_names = conversion_result["tamil_names"]
