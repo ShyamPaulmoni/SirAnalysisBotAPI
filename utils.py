@@ -53,6 +53,7 @@ def get_llm_client():
     return _llm_client
 
 
+@lru_cache(maxsize=1)
 def generate_sas_url_with_cache():
     """Generate SAS URL with intelligent caching and refresh"""
     global _sas_url, _sas_expiry
@@ -90,6 +91,7 @@ def generate_sas_url_with_cache():
                 
         return _sas_url
 
+@lru_cache(maxsize=1)
 def init_database():
     """Initialize DuckDB connection and refresh view with current SAS URL"""
     global _db_connection
