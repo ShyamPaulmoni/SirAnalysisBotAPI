@@ -26,6 +26,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY . .
 
+# Create directories with proper permissions before switching to non-root user
+RUN mkdir -p /app/duckdb_data && \
+    chmod 755 /app/duckdb_data
+
 # Create non-root user for security and set permissions
 RUN groupadd -r appuser && useradd -r -g appuser appuser && \
     chown -R appuser:appuser /app

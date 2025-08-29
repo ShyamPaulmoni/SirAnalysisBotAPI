@@ -93,16 +93,47 @@ def generate_sas_url_with_cache():
 
 @lru_cache(maxsize=1)
 def init_database():
-    """Initialize DuckDB connection and refresh view with current SAS URL"""
+    """Initialize DuckDB connection with proper container environment setup"""
     global _db_connection
-    if _db_connection is None  or _sas_expiry is None or datetime.now() > (_sas_expiry - timedelta(minutes=10)):
-        _db_connection = duckdb.connect()
-        _db_connection.execute("SET home_directory='/tmp';")
-        _db_connection.execute("INSTALL httpfs;")
-        _db_connection.execute("LOAD httpfs;")    
-        # Always refresh the view with current SAS URL
-        sas_url = generate_sas_url_with_cache()
-        _db_connection.execute(f"CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('{sas_url}')")
+    if _db_connection is None or _sas_expiry is None or datetime.now() > (_sas_expiry - timedelta(minutes=10)):
+        try:
+            # Create a writable directory in the container
+            os.makedirs('/app/duckdb_data', exist_ok=True)
+            
+            # Initialize DuckDB with explicit configuration for containers
+            _db_connection = duckdb.connect()
+            
+            # Set multiple fallback home directories for container compatibility
+            _db_connection.execute("SET home_directory='/app/duckdb_data';")
+            _db_connection.execute("SET temp_directory='/app/duckdb_data';")
+            
+            # Install and load httpfs extension
+            _db_connection.execute("INSTALL httpfs;")
+            _db_connection.execute("LOAD httpfs;")
+            
+            # Configure httpfs for Azure Blob Storage
+            _db_connection.execute("SET s3_region='us-east-1';")
+            _db_connection.execute("SET s3_use_ssl=true;")
+            
+            # Get fresh SAS URL and create view
+            sas_url = generate_sas_url_with_cache()
+            _db_connection.execute(f"CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('{sas_url}')")
+            
+            print("DuckDB initialized successfully for container environment")
+            
+        except Exception as e:
+            print(f"Error initializing database: {str(e)}")
+            # Fallback: try in-memory database
+            try:
+                _db_connection = duckdb.connect(':memory:')
+                _db_connection.execute("INSTALL httpfs;")
+                _db_connection.execute("LOAD httpfs;")
+                sas_url = generate_sas_url_with_cache()
+                _db_connection.execute(f"CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('{sas_url}')")
+                print("DuckDB initialized with in-memory fallback")
+            except Exception as fallback_error:
+                print(f"Both database initialization methods failed: {str(fallback_error)}")
+                raise
 
     return _db_connection
 
@@ -192,7 +223,6 @@ def extract_person_names_with_ai(text: str) -> List[str]:
 
 def detect_english_names(text: str) -> bool:
     """Enhanced detection using AI-based Named Entity Recognition for person names only"""
-    # Skip if constituency names are detected
      
     # First, try AI-based name extraction
     extracted_names = extract_person_names_with_ai(text)
