@@ -93,7 +93,7 @@ def generate_sas_url_with_cache():
 def init_database():
     """Initialize DuckDB connection and refresh view with current SAS URL"""
     global _db_connection
-    if _db_connection is None:
+    if _db_connection is None  or _sas_expiry is None or datetime.now() > (_sas_expiry - timedelta(minutes=10)):
         _db_connection = duckdb.connect()
         _db_connection.execute("SET home_directory='/tmp';")
         _db_connection.execute("INSTALL httpfs;")
@@ -101,7 +101,7 @@ def init_database():
         # Always refresh the view with current SAS URL
         sas_url = generate_sas_url_with_cache()
         _db_connection.execute(f"CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('{sas_url}')")
-        
+
     return _db_connection
 
 @lru_cache(maxsize=1)
