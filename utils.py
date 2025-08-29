@@ -160,7 +160,7 @@ def extract_person_names_with_ai(text: str) -> List[str]:
     try:
         client = get_llm_client()
         prompt = f"""
-        Analyze this text and extract ONLY person names (not places, organizations, constituency names, or common words).
+         Analyze this text and extract ONLY person names (not places, organizations, or common words).
         
         Text: "{text}"
         
@@ -169,32 +169,23 @@ def extract_person_names_with_ai(text: str) -> List[str]:
         GUIDELINES:
         1. Look for proper nouns that could be person names
         2. Focus on Indian/South Indian name patterns
-        3. IGNORE place names, organizations, common English words
-        4. IGNORE constituency names like Chennai, Madurai, Coimbatore, etc.
-        5. IGNORE political terms like "constituency", "assembly", "parliament"
-        6. Consider both first names and surnames
-        7. Include names even if they appear in different contexts
+        3. Ignore place names, organizations, common English words
+        4. Consider both first names and surnames
+        5. Include names even if they appear in different contexts
         
-        COMMON INDIAN PERSON NAME PATTERNS:
+        COMMON INDIAN NAME PATTERNS:
         - Names ending in: -an, -ar, -am, -raj, -kumar, -devi, -priya, -krishna
         - Names starting with: Sri, Sel, Muru, Kart, Div, Ani, Sur, Rav, Prab
-        
-        EXCLUDE (NOT PERSON NAMES):
-        - Place names: Chennai, Madurai, Coimbatore, Salem, etc.
-        - Political terms: constituency, assembly, parliament, seat, etc.
         
         OUTPUT FORMAT:
         Return ONLY the person names found, one per line.
         If no person names found, return "NO_NAMES_FOUND"
         
         Examples:
-        Input: "Find voters named Kumar and Priya in Chennai constituency"
+        Input: "Find voters named Kumar and Priya in Chennai"
         Output: 
         Kumar
         Priya
-        
-        Input: "Show me data for Chennai and Madurai constituencies"
-        Output: NO_NAMES_FOUND
         
         Input: "Show me demographics data"
         Output: NO_NAMES_FOUND
