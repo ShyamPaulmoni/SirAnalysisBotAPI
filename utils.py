@@ -44,7 +44,7 @@ def get_llm_client():
                 azure_endpoint=api_base,
                 openai_api_key=api_key,
                 openai_api_type=os.getenv("API_TYPE", "azure"),
-                openai_api_version=os.getenv("API_VERSION", "2024-02-15-preview"),
+                openai_api_version=os.getenv("API_VERSION", "2025-01-01-preview"),
                 temperature=0.1,
             )
         except Exception as e:
